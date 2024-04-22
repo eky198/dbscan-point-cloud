@@ -18,8 +18,10 @@
 #include <unistd.h>
 #include <omp.h>
 
+#include <boost/pending/disjoint_sets.hpp>
+
 void dbscan(PointCloud& point_cloud, int num_threads, double epsilon, int min_pts) {
-    
+    disjointset_t disjoint_sets = make_disjoint_sets(point_cloud.points);
 }
 
 int main(int argc, char *argv[]) {
@@ -72,10 +74,12 @@ int main(int argc, char *argv[]) {
     float **pc_data = new float*[num_pts];
     PointCloud point_cloud(num_pts);
     for (int i = 0; i < num_pts; i++) {
-        point_cloud[i].cluster = -1;
+        Point point;
+        point.cluster = -1;
         for (int j = 0; j < 4; j++) {
-            point_cloud[i].data[j] = raw_data[4 * i + j];
+            point.data[j] = raw_data[4 * i + j];
         }
+        point_cloud.add_point(point);
     }
     std::cout << "Number of points in input: " << num_pts << '\n';
 
