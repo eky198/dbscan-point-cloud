@@ -1,5 +1,5 @@
 /**
- * Sequential DBSCAN
+ * Sequential Disjoint-Set DBSCAN
  * Ethan Ky (etky), Nicholas Beach (nbeach)
  */
 
@@ -9,6 +9,7 @@
 #include <iostream>
 #include <random>
 #include <fstream>
+#include <sstream>
 #include <iomanip>
 #include <chrono>
 #include <string>
@@ -16,7 +17,39 @@
 #include <cmath>
 
 void dbscan(PointCloud& point_cloud, double epsilon, int min_pts) {
+    DisjointSetInt disjoint_sets(point_cloud.size());
 
+    // First form clusters within threads
+    for (size_t i = 0; i < point_cloud.size(); i++) {
+        Point& x = point_cloud[i];
+        auto neighbors = point_cloud.get_neighbors(x, epsilon);
+        if (neighbors.size() >= min_pts) {
+            x.status = core;
+            for (auto neighbor : neighbors) {
+                int j = neighbor.first;
+                Point& y = point_cloud[j];
+                if (y.status == core) {
+                    disjoint_sets.union_set(i, j);
+                }
+                else if (y.status == none) {
+                    y.status = border;
+                    disjoint_sets.union_set(i, j);
+                }
+            }
+        }
+    }
+
+    // Then do path compression and label clusters
+    for (size_t i = 0; i < point_cloud.size(); i++) {
+        Point& point = point_cloud[i];
+        Point& parent = point_cloud[disjoint_sets.find_set(i)];
+        if (parent.status != none) {
+            if (parent.cluster < 0) {
+                parent.cluster = point_cloud.next_cluster++;
+            }
+            point.cluster = parent.cluster;
+        }
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -51,39 +84,53 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    std::cout << "Distance threshold (epsilon): " << epsilon << "\n";
-    std::cout << "Minimum number of points to form a cluster (min_pts): " << min_pts << "\n";
+    std::cout << "Distance threshold (epsilon): " << epsilon << '\n';
+    std::cout << "Minimum number of points to form a cluster (min_pts): " << min_pts << '\n';
 
-    std::FILE *p_file = fopen(input_filename.c_str(), "rb");
-    fseek(p_file, 0, SEEK_END);
-    long file_size = ftell(p_file);
-    rewind(p_file);
-    float *raw_data = new float[file_size];
-    fread(raw_data, sizeof(float), file_size / sizeof(float), p_file);
-    long num_pts = file_size / 4 / sizeof(float);
-    float **pc_data = new float*[num_pts];
-    PointCloud point_cloud(num_pts);
-    for (int i = 0; i < num_pts; i++) {
-        point_cloud[i].cluster = i;
-        for (int j = 0; j < 4; j++) {
-            point_cloud[i].data[j] = raw_data[4 * i + j];
-        }
+    std::ifstream fin(input_filename);
+    if (!fin) {
+        std::cerr << "Unable to open file: " << input_filename << ".\n";
+        exit(EXIT_FAILURE);
     }
-    std::cout << "Number of points in input: " << num_pts << "\n";
+
+    PointCloud point_cloud;
+
+    std::string line;
+    while (std::getline(fin, line)) {
+        std::istringstream sin(line);
+        Point point;
+        point.cluster = -1;
+        for (int i = 0; i < DIMENSIONALITY; i++) {
+            sin >> point.data[i];
+        }
+        point_cloud.add_point(point);
+    }
+    fin.close();
+    size_t num_pts = point_cloud.size();
+    std::cout << "Number of points in input: " << num_pts << '\n';
 
     /* Initialize additional data structures */
 
     const double init_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - init_start).count();
     std::cout << "Initialization time (sec): " << std::fixed << std::setprecision(10) << init_time << '\n';
 
-    /* Perform all computation here */
-    dbscan(point_cloud, epsilon, min_pts);
+    /* Debugging */
+    std::cout << "Here are the first " << NUM_PRINT_POINTS << " points: \n";
+    for (int i = 0; i < 5; i++) {
+        Point point = point_cloud[i];
+        std::cout << "x: " << point.data[0] << ", y: " << point.data[1] << ", z: " << point.data[2] << ", r: " << point.data[3] << '\n';
+    }
 
+    /* Perform all computation here */
     const auto compute_start = std::chrono::steady_clock::now();
+
+    dbscan(point_cloud, epsilon, min_pts);
 
     const double compute_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - compute_start).count();
     std::cout << "Computation time (sec): " << compute_time << '\n';
 
     const double total_time = init_time + compute_time;
     std::cout << "Total time (sec): " << total_time << '\n';
+
+    write_output(point_cloud, 1, input_filename);
 }
