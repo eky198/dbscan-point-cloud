@@ -200,7 +200,7 @@ struct DisjointSetInt {
     }
 };
 
-void write_output(const PointCloud& point_cloud, int num_threads, double epsilon, int min_pts, std::string input_filename) {
+void write_output(const std::vector<Point>& points, int num_threads, double epsilon, int min_pts, std::string input_filename) {
     if (input_filename.size() >= 4 && input_filename.substr(input_filename.size() - 4) == ".txt") {
         input_filename.resize(input_filename.size() - 4);
     }
@@ -213,15 +213,19 @@ void write_output(const PointCloud& point_cloud, int num_threads, double epsilon
         exit(EXIT_FAILURE);
     }
 
-    int num_points = point_cloud.size();
+    int num_points = points.size();
     std::cout << "Writing " << num_points << " points\n";
     out_clusters << num_points << '\n';
     out_clusters << epsilon << ' ' << min_pts << '\n';
     for (int i = 0; i < num_points; i++) {
-        out_clusters << point_cloud[i].cluster << '\n';
+        out_clusters << points[i].cluster << '\n';
     }
     out_clusters << '\n';
     out_clusters.close();
+}
+
+void write_output(const PointCloud& point_cloud, int num_threads, double epsilon, int min_pts, std::string input_filename) {
+    write_output(point_cloud.points, num_threads, epsilon, min_pts, input_filename);
 }
 
 #endif

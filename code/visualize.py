@@ -1,7 +1,7 @@
+import pptk
 import logging
 import sys
 import numpy as np
-from sklearn.cluster import DBSCAN
 
 FORMAT = '%(asctime)-15s - %(levelname)s - %(module)10s:%(lineno)-5d - %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format=FORMAT)
@@ -10,21 +10,12 @@ LOG = logging.getLogger(__name__)
 help_message = '''
 usage: validate.py [-h] [-d point cloud raw data file] [-c clusters file]
 
-Validate the DBSCAN clustering output
+Visualize the DBSCAN point cloud clusters
 
 optional arguments:
   -h, --help            Show this help message and exit
   -v, --verbose         Show all mismatched labels
 '''
-
-verbose = False
-MISMATCH_REPORT_CNT = 6
-mismatch_cnt = 0
-
-
-def dbscan(point_cloud, epsilon, min_pts):
-    clusters = DBSCAN(eps=epsilon, min_samples=min_pts, algorithm='kd_tree', n_jobs=-1).fit(point_cloud)
-    return clusters.labels_
 
 
 def parse_args():
@@ -44,18 +35,19 @@ def parse_args():
     return parsed
 
 
-def validate(args):
-    global mismatch_cnt
+def visualize(point_cloud, pred_clusters):
+    viewer = pptk.viewer(point_cloud[:, :3])
+    viewer.attributes(pred_clusters)
+    viewer.set(point_size=0.001)
 
+
+def main(args):
     # load point cloud from text file
     point_cloud = np.loadtxt(args['data'])
     point_cloud = np.reshape(point_cloud, (-1, 4))
     print(point_cloud)
     params = np.loadtxt(args['clusters'], max_rows=1, skiprows=1, usecols=(0, 1))
     print(params)
-
-    # get clusters from sklearn
-    true_clusters = dbscan(point_cloud, float(params[0]), int(params[1]))
 
     # load clusters from given file, and convert to monotonically increasing
     pred_clusters = np.loadtxt(args['clusters'], skiprows=2)
@@ -69,29 +61,7 @@ def validate(args):
             cluster_set[cluster] = next_cluster
             next_cluster += 1
 
-    # check for mismatches with clusters from sklearn
-    mismatches = np.argwhere(pred_clusters != true_clusters).squeeze()
-
-    for i, mismatch in enumerate(mismatches):
-        if not verbose and i >= MISMATCH_REPORT_CNT:
-            break
-        print("Actual cluster is {}, predicted cluster is {}".format(true_clusters[mismatch], pred_clusters[mismatch]))
-
-    if len(mismatches) > 0:
-        return False
-    return True
-
-    # TODO: Look at DBSCAN clustering metrics to assess quality
-
-
-def main(args):
-    val = validate(args)
-    if val:
-        LOG.info('Validate succeeded.')
-    else:
-        LOG.info('Validation failed.')
-        if (not verbose and mismatch_cnt >= MISMATCH_REPORT_CNT):
-            LOG.info('Showing truncated report. To see a list of all mismatches, run with \'-v\'.')
+    visualize(point_cloud, pred_clusters)
 
 
 if __name__ == '__main__':
