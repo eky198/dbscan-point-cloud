@@ -132,5 +132,5 @@ int main(int argc, char *argv[]) {
     const double total_time = init_time + compute_time;
     std::cout << "Total time (sec): " << total_time << '\n';
 
-    write_output(point_cloud, 1, input_filename);
+    write_output(point_cloud, 1, epsilon, min_pts, input_filename);
 }

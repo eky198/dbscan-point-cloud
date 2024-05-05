@@ -88,7 +88,7 @@ void dbscan(PointCloud& point_cloud, int num_threads, double epsilon, int min_pt
                 if (y.status == core) {
                     disjoint_sets.union_set_with_lock(i, j);
                 }
-                // #pragma omp critical
+                #pragma omp critical
                     if (y.status == none) {
                         y.status = border;
                         disjoint_sets.union_set_with_lock(i, j);
@@ -194,5 +194,5 @@ int main(int argc, char *argv[]) {
     const double total_time = init_time + compute_time;
     std::cout << "Total time (sec): " << total_time << '\n';
 
-    write_output(point_cloud, num_threads, input_filename);
+    write_output(point_cloud, num_threads, epsilon, min_pts, input_filename);
 }

@@ -14,10 +14,7 @@ Validate the wire routing output and cost matrix
 
 optional arguments:
   -h, --help            Show this help message and exit
-  -e EPSILON            Maximum Euclidean distance for point to be considered a neighbor
-  -p MIN_PTS            Minimum number of neighboring points to form a cluster or core point
-  -d DATA               Raw point cloud data file
-  -c CLUSTERS           Cluster index for each point (ordered w.r.t. data file)
+  -v, --verbose         Show all mismatched labels
 '''
 
 verbose = False
@@ -36,15 +33,13 @@ def parse_args():
     if '-h' in args or '--help' in args:
         print (help_message)
         sys.exit(1)
-    if '-e' not in args or 'p' not in args or '-d' not in args or '-c' not in args:
-        print (help_message)
+    if '-d' not in args or '-c' not in args:
+        print ('help_message')
         sys.exit(1)
-    if '-v' in args:
+    if '-v' in args or '--verbose' in args:
         verbose = True
     parsed = {}
-    parsed['epsilon'] = args[args.index('-e') + 1]
-    parsed['min_pts'] = args[args.index('-p') + 1]
-    parsed['data'] = args[args.index('-r') + 1]
+    parsed['data'] = args[args.index('-d') + 1]
     parsed['clusters'] = args[args.index('-c') + 1]
     return parsed
 
@@ -52,13 +47,40 @@ def parse_args():
 def validate(args):
     global mismatch_cnt
 
-    point_cloud = np.fromfile(args['data'], '<f4')
-    point_cloud = np.reshape(point_cloud, (-1, 4))  
-    true_clusters = dbscan(point_cloud, args['epsilon'], args['min_pts'])
+    # load point cloud from text file
+    point_cloud = np.loadtxt(args['data'])
+    point_cloud = np.reshape(point_cloud, (-1, 4))
+    print(point_cloud)
+    params = np.loadtxt(args['clusters'], max_rows=1, skiprows=1, usecols=(0, 1))
+    print(params)
 
-    # TODO: Read predicted clusters from args['clusters'] txt file
-    # TODO: Compare true clusters to predicted clusters, keeping track of any mismatches
-    # TODO: If verbose, print out all the mismatched points
+    # get clusters from sklearn
+    true_clusters = dbscan(point_cloud, float(params[0]), int(params[1]))
+
+    # load clusters from given file, and convert to monotonically increasing
+    pred_clusters = np.loadtxt(args['clusters'], skiprows=2)
+    cluster_set = {}
+    next_cluster = 0
+    for i in range(len(pred_clusters)):
+        cluster = pred_clusters[i]
+        if cluster in cluster_set:
+            pred_clusters[i] = cluster_set[cluster]
+        elif cluster != -1:
+            cluster_set[cluster] = next_cluster
+            next_cluster += 1
+
+    # check for mismatches with clusters from sklearn
+    mismatches = np.argwhere(pred_clusters != true_clusters).squeeze()
+
+    for i, mismatch in enumerate(mismatches):
+        if not verbose and i >= MISMATCH_REPORT_CNT:
+            break
+        print("Actual cluster is {}, predicted cluster is {}".format(true_clusters[mismatch], pred_clusters[mismatch]))
+
+    if len(mismatches) > 0:
+        return False
+    return True
+
     # TODO: Look at DBSCAN clustering metrics to assess quality
 
 

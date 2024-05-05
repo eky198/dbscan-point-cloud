@@ -64,7 +64,7 @@ struct Point {
 
 struct PointCloud {
     std::vector<Point> points;
-    std::atomic<int> next_cluster;
+    std::atomic<int> next_cluster{0};
 
     typedef nanoflann::L2_Simple_Adaptor<double, PointCloud> metric_t;
     nanoflann::KDTreeSingleIndexDynamicAdaptor<metric_t, PointCloud, DIMENSIONALITY, int>* index;
@@ -200,7 +200,7 @@ struct DisjointSetInt {
     }
 };
 
-void write_output(const PointCloud& point_cloud, int num_threads, std::string input_filename) {
+void write_output(const PointCloud& point_cloud, int num_threads, double epsilon, int min_pts, std::string input_filename) {
     if (input_filename.size() >= 4 && input_filename.substr(input_filename.size() - 4) == ".txt") {
         input_filename.resize(input_filename.size() - 4);
     }
@@ -216,6 +216,7 @@ void write_output(const PointCloud& point_cloud, int num_threads, std::string in
     int num_points = point_cloud.size();
     std::cout << "Writing " << num_points << " points\n";
     out_clusters << num_points << '\n';
+    out_clusters << epsilon << ' ' << min_pts << '\n';
     for (int i = 0; i < num_points; i++) {
         out_clusters << point_cloud[i].cluster << '\n';
     }
