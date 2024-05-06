@@ -7,11 +7,12 @@
 https://github.com/eky198/dbscan-point-cloud
 
 ## Summary
-We are writing a parallel implementation of DBSCAN clustering on LiDAR point clouds, using OpenMP and CUDA. Analysis will involve comparing the implementations and studying scalability across different data distributions. A parallel renderer will be written to visualize the clustering results as they are being computed.
+We are writing a parallel implementation of DBSCAN clustering on LiDAR point clouds, using OpenMP and CUDA. Analysis will involve comparing the implementations and studying scalability across different data distributions.
 
 ## Reports
 [Project Proposal](reports/project-proposal.pdf)
 [Milestone Report](reports/milestone-report.pdf)
+[Final Report](reports/final-report.pdf)
 
 ## Background
 Density-based spatial clustering, or DBSCAN, is a clustering algorithm which serves as an alternative to K-means clustering. One advantage is that it is much less sensitive to outliers, and performs much better on data distributions with nested patterns. As such, it is often used to pre-process LiDAR point clouds, which vary significantly in data density, for 3D object detectors and other computer vision tasks. An efficient, parallel implementation of the algorithm would be very useful for real-time vision tasks as are often used in autonomous vehicles.

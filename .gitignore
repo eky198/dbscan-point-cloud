@@ -1,5 +1,7 @@
 *_clusters_*
 dbscan
 dbscan_seq
+dbscan_cu
 .vscode/
 *.o
+*.tar

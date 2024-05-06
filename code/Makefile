@@ -1,3 +1,10 @@
+FILES= Makefile \
+	   *.h \
+	   *.cpp \
+	   *.py \
+	   *.cu \
+	   *.hpp
+
 CXX = g++
 CXXFLAGS = -Wall -O3 -std=c++17 -m64 -I. -fopenmp -Wno-unknown-pragmas
 # CXXFLAGS = -Wall -g -std=c++17 -m64 -I. -fopenmp -Wno-unknown-pragmas
@@ -26,3 +33,6 @@ dbscan_cu.o: dbscan.cu dbscan.h
 
 clean:
 	/bin/rm -rf *~ *.o $(APP_NAME) *.class
+
+handin.tar: $(FILES)
+	tar cvf handin.tar $(FILES)
