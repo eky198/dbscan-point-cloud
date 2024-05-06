@@ -1,7 +1,8 @@
-import pptk
+# import pptk
 import logging
 import sys
 import numpy as np
+import matplotlib.pyplot as plt
 
 FORMAT = '%(asctime)-15s - %(levelname)s - %(module)10s:%(lineno)-5d - %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format=FORMAT)
@@ -35,10 +36,23 @@ def parse_args():
     return parsed
 
 
+# def visualize_pptk(point_cloud, pred_clusters):
+#     viewer = pptk.viewer(point_cloud[:, :3])
+#     viewer.attributes(pred_clusters)
+#     viewer.set(point_size=1)
+
+
 def visualize(point_cloud, pred_clusters):
-    viewer = pptk.viewer(point_cloud[:, :3])
-    viewer.attributes(pred_clusters)
-    viewer.set(point_size=0.001)
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+
+    ax.scatter(point_cloud[:, 0], point_cloud[:, 1], point_cloud[:, 2], c=pred_clusters)
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+
+    plt.show()  
 
 
 def main(args):

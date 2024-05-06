@@ -31,7 +31,7 @@
 
 struct Parameters {
     float4* point_cloud;
-    int num_points;
+    int num_pts;
 
     float epsilon;
     int min_pts;
@@ -59,7 +59,12 @@ __device__ void process_point(int point_idx, int* cluster_list, int* seed_lists,
     }
 
     if (old_cluster_idx >= gridDim.x) {
-        atomicCAS(&correction_matrix[cluster_idx], UNPROC, old_cluster_idx);
+        for (int i = 0; i < device_params.num_pts; i++) {
+            int changed_cluster_idx = atomicCAS(&correction_matrix[cluster_idx * device_params.num_pts + i], UNPROC, old_cluster_idx);
+            if (changed_cluster_idx == UNPROC || changed_cluster_idx == old_cluster_idx) {
+                break;
+            }
+        }
     }
 
     if (old_cluster_idx == NOISE) {
@@ -83,7 +88,7 @@ __global__ void expansion_kernel(int* cluster_list, int* seed_lists, int* seed_l
         }
         __syncthreads();
 
-        for (int point_idx = threadIdx.x; point_idx < device_params.num_points; point_idx += THREADS_PER_BLOCK) {
+        for (int point_idx = threadIdx.x; point_idx < device_params.num_pts; point_idx += THREADS_PER_BLOCK) {
             float4 point = device_params.point_cloud[point_idx];
             if (distance(point, seed_point) <= device_params.epsilon) {
                 atomicAdd(&neighbor_count, 1);
@@ -114,7 +119,7 @@ __global__ void expansion_kernel(int* cluster_list, int* seed_lists, int* seed_l
 __global__ void fill_seed_list_kernel(int* cluster_list, int* seed_lists, int* seed_list_sizes, bool* result) {
     __shared__ int next_cluster_idx;
 
-    for (int point_idx = threadIdx.x; point_idx < device_params.num_points; point_idx += THREADS_PER_BLOCK) {
+    for (int point_idx = threadIdx.x; point_idx < device_params.num_pts; point_idx += THREADS_PER_BLOCK) {
         if (cluster_list[point_idx] == UNPROC) {
             *result = false;
             if (next_cluster_idx < BLOCKS) {
@@ -128,7 +133,7 @@ __global__ void fill_seed_list_kernel(int* cluster_list, int* seed_lists, int* s
     }
 }
 
-__global__ void init_matrix_kernel(int* collision_matrix, int* correction_matrix, int num_points) {
+__global__ void init_matrix_kernel(int* collision_matrix, int* correction_matrix, int num_pts) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < BLOCKS * BLOCKS) {
         collision_matrix[idx] = UNPROC;
@@ -138,53 +143,55 @@ __global__ void init_matrix_kernel(int* collision_matrix, int* correction_matrix
     }
 }
 
-__global__ void merge_clusters_kernel(int* cluster_list, int* collision_matrix, int* correction_matrix) {
+__global__ void merge_clusters_kernel(int* cluster_list, int* collision_matrix, int* correction_matrix, int* next_cluster) {
+    int cluster_idx = blockIdx.x;
+    int new_cluster_label = *next_cluster + cluster_idx;
 
-}
+    for (int point_idx = threadIdx.x; point_idx < device_params.num_pts; point_idx += THREADS_PER_BLOCK) {
+        int point_cluster_idx = cluster_list[point_idx];
+        if (point_cluster_idx != UNPROC && point_cluster_idx != NOISE && point_cluster_idx < BLOCKS) {
+            // Check for any collision
+            if (collision_matrix[point_cluster_idx * BLOCKS + cluster_idx] != UNPROC) {
+                cluster_list[point_idx] = cluster_idx;
+            }
+        }
+    }
+    __syncthreads();
 
-void init_matrix(int* collision_matrix, int* correction_matrix, int num_points) {
-    cudaMemset(collision_matrix, UNPROC, sizeof(int) * BLOCKS * BLOCKS);
-    // cudaMemset(correction_matrix, UNPROC, sizeof(int) * BLOCKS * num_pts);
-    cudaMemset(correction_matrix, UNPROC, sizeof(int) * BLOCKS);
-}
+    for (int point_idx = threadIdx.x; point_idx < device_params.num_pts; point_idx += THREADS_PER_BLOCK) {
+        int point_cluster_idx = cluster_list[point_idx];
 
-void merge_clusters(int* cluster_list, int* collision_matrix, int* correction_matrix, int num_points, int* next_cluster) {
-    int i;
-    #pragma omp parallel for default(shared) private(i) schedule(dynamic)
-        for (i = 0; i < num_points; i++) {
-            // if (*next_cluster < BLOCKS || *next_cluster >= device_params.num_points + BLOCKS) {
-            //     printf("Failed with next_cluster=%d\n", *next_cluster);
-            // }
-            int cluster_idx = cluster_list[i];
-            if (cluster_idx != UNPROC && cluster_idx != NOISE && cluster_idx < BLOCKS) {
-                // merge colliding cluster/chain with the one of highest idx
-                for (int j = BLOCKS - 1; j >= 0; j--) {
-                    // printf("i: %d, cluster_idx: %d, j: %d\n", i, cluster_idx, j);
-                    if (collision_matrix[cluster_idx * BLOCKS + j] != UNPROC) {
-                        cluster_list[i] = j;
-                        break;
-                    }
+        // Check if the point already has intermediate cluster, then merge 
+        if (point_cluster_idx >= gridDim.x) {
+            for (int i = 0; i < device_params.num_pts; i++) {
+                int new_cluster_idx = correction_matrix[cluster_idx * device_params.num_pts + i];
+                if (new_cluster_idx != UNPROC) {
+                    break;
                 }
 
-                // now merge with intermediate cluster, if there is one
-                cluster_idx = cluster_list[i];
-                if (correction_matrix[cluster_idx] != UNPROC) {
-                    cluster_list[i] = correction_matrix[cluster_idx];
-                }
-                else if (correction_matrix[cluster_idx] == UNPROC) {
-                    #pragma omp critical
-                        cluster_list[i] = *next_cluster;
-                        next_cluster++;
-                    correction_matrix[cluster_idx] = cluster_list[i];
+                if (new_cluster_idx == point_cluster_idx) {
+                    cluster_list[point_idx] = correction_matrix[cluster_idx * device_params.num_pts];
+                    break;
                 }
             }
         }
+
+        // Otherwise, check if the point is processed and has same chain idea as current block, then assign a new label
+        if (point_cluster_idx != UNPROC && point_cluster_idx != NOISE && point_cluster_idx == cluster_idx) {
+            cluster_list[point_idx] = new_cluster_label;
+        }
+    }
+    __syncthreads();
+
+    if (cluster_idx == 0) {
+        atomicAdd(next_cluster, BLOCKS);
+    }
 }
 
-void finalize_clusters(int* cluster_list, int num_points) {
+void finalize_clusters(int* cluster_list, int num_pts) {
     int i;
     #pragma omp parallel for default(shared) private(i) schedule(static)
-        for (i = 0; i < num_points; i++) {
+        for (i = 0; i < num_pts; i++) {
             if (cluster_list[i] != NOISE) {
                 cluster_list[i] -= BLOCKS;
             }
@@ -192,34 +199,34 @@ void finalize_clusters(int* cluster_list, int num_points) {
 }
 
 void dbscan(std::vector<float4>& points, int* cluster_list, double epsilon, int min_pts) {
-    int num_points = points.size();
+    int num_pts = points.size();
 
     // put point cloud in device memory
     float4* device_point_cloud;
-    cudaMalloc(&device_point_cloud, sizeof(float4) * num_points);
-    cudaMemcpy(device_point_cloud, points.data(), sizeof(float4) * num_points, cudaMemcpyHostToDevice);
+    cudaMalloc(&device_point_cloud, sizeof(float4) * num_pts);
+    cudaMemcpy(device_point_cloud, points.data(), sizeof(float4) * num_pts, cudaMemcpyHostToDevice);
     printf("Allocated point cloud in device memory\n");
 
     // put parameters in constant memory
-    Parameters params{device_point_cloud, num_points, epsilon, min_pts};
+    Parameters params{device_point_cloud, num_pts, epsilon, min_pts};
     cudaMemcpyToSymbol(device_params, &params, sizeof(Parameters));
     printf("Allocated parameters in device memory\n");
 
     // cluster lists
     int* device_cluster_list;
-    cudaMalloc(&device_cluster_list, sizeof(int) * num_points);
-    cudaMemcpy(device_cluster_list, cluster_list, sizeof(int) * num_points, cudaMemcpyHostToDevice);
+    cudaMalloc(&device_cluster_list, sizeof(int) * num_pts);
+    cudaMemcpy(device_cluster_list, cluster_list, sizeof(int) * num_pts, cudaMemcpyHostToDevice);
     printf("Allocated cluster list in device memory\n");
 
     // collision and correction matrices
     int* device_collision_matrix;
     cudaMalloc(&device_collision_matrix, sizeof(int) * BLOCKS * BLOCKS);
     int* device_correction_matrix;
-    // cudaMalloc(&device_correction_matrix, sizeof(int) * BLOCKS * num_points);
-    cudaMalloc(&device_correction_matrix, sizeof(int) * BLOCKS);
+    cudaMalloc(&device_correction_matrix, sizeof(int) * BLOCKS * num_pts);
+    // cudaMalloc(&device_correction_matrix, sizeof(int) * BLOCKS);
     int* collision_matrix = new int[BLOCKS * BLOCKS];
-    // int* correction_matrix = new int[BLOCKS * num_points];
-    int* correction_matrix = new int[BLOCKS];
+    int* correction_matrix = new int[BLOCKS * num_pts];
+    // int* correction_matrix = new int[BLOCKS];
     printf("Allocated collision and correction matrices in device memory\n");
 
     // seed list variables
@@ -234,24 +241,22 @@ void dbscan(std::vector<float4>& points, int* cluster_list, double epsilon, int 
     printf("Allocated seed lists in device memory\n");
 
     // start maintaining next cluster label
-    int next_cluster = BLOCKS;
+    // int next_cluster = BLOCKS;
+    int* device_next_cluster;
+    cudaMalloc(&device_next_cluster, sizeof(int));
+    cudaMemset(device_next_cluster, BLOCKS, sizeof(int));
 
     int iter = 0;
     fill_seed_list_kernel<<<BLOCKS, THREADS_PER_BLOCK>>>(device_cluster_list, device_seed_lists, device_seed_list_sizes, device_result);
     while (true) {
         printf("Running iteration %d\n", iter);
-        init_matrix_kernel<<<BLOCKS, THREADS_PER_BLOCK>>>(device_collision_matrix, device_correction_matrix, num_points);
+        init_matrix_kernel<<<BLOCKS, THREADS_PER_BLOCK>>>(device_collision_matrix, device_correction_matrix, num_pts);
         cudaDeviceSynchronize();
         expansion_kernel<<<BLOCKS, THREADS_PER_BLOCK>>>(device_cluster_list, device_seed_lists, device_seed_list_sizes, device_collision_matrix, device_correction_matrix);
         cudaDeviceSynchronize();
 
-        cudaMemcpy(collision_matrix, device_collision_matrix, sizeof(int) * BLOCKS * BLOCKS, cudaMemcpyDeviceToHost);
-        // cudaMemcpy(correction_matrix, device_correction_matrix, sizeof(int) * BLOCKS * num_pts, cudaMemcpyDeviceToHost);
-        cudaMemcpy(correction_matrix, device_correction_matrix, sizeof(int) * BLOCKS, cudaMemcpyDeviceToHost);
-        cudaMemcpy(cluster_list, device_cluster_list, sizeof(int) * num_points, cudaMemcpyDeviceToHost);
-        merge_clusters(cluster_list, collision_matrix, correction_matrix, num_points, &next_cluster);
-        cudaMemcpy(device_cluster_list, cluster_list, sizeof(int) * num_points, cudaMemcpyHostToDevice);
-        // merge_clusters_kernel<<<BLOCKS, THREADS_PER_BLOCK>>>(device_cluster_list, device_collision_matrix, device_correction_matrix);
+        merge_clusters_kernel<<<BLOCKS, THREADS_PER_BLOCK>>>(device_cluster_list, device_collision_matrix, device_correction_matrix, device_next_cluster);
+        cudaDeviceSynchronize();
 
         bool result = true;
         cudaMemcpy(device_result, &result, sizeof(bool), cudaMemcpyHostToDevice);
@@ -265,7 +270,8 @@ void dbscan(std::vector<float4>& points, int* cluster_list, double epsilon, int 
         }
     }
 
-    finalize_clusters(cluster_list, num_points);
+    cudaMemcpy(cluster_list, device_cluster_list, sizeof(int) * num_pts, cudaMemcpyDeviceToHost);
+    finalize_clusters(cluster_list, num_pts);
 
     // free host memory
     delete [] collision_matrix;
