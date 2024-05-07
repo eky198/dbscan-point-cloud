@@ -165,7 +165,7 @@ __global__ void merge_clusters_kernel(int* cluster_list, int* collision_matrix, 
         if (point_cluster_idx >= gridDim.x) {
             for (int i = 0; i < device_params.num_pts; i++) {
                 int new_cluster_idx = correction_matrix[cluster_idx * device_params.num_pts + i];
-                if (new_cluster_idx != UNPROC) {
+                if (new_cluster_idx == UNPROC) {
                     break;
                 }
 
@@ -409,7 +409,7 @@ int main(int argc, char *argv[]) {
     std::cout << "Total time (sec): " << total_time << '\n';
 
     std::vector<Point> point_cloud(num_pts);
-    #pragma omp parallel for default(shared) private(i) schedule(dynamic)
+    #pragma omp parallel for default(shared) private(i) schedule(static)
         for (i = 0; i < num_pts; i++) {
             Point point;
             point.cluster = cluster_list[i];
